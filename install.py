@@ -36,7 +36,7 @@ def is_installed(pip_package):
 requirements = [
 "scikit-learn",
 "accelerate==1.6.0",
-"git+https://github.com/huggingface/diffusers",
+"diffusers==0.33.1",
 "transformers==4.46.2",
 "sentencepiece==0.2.0",
 "pillow==11.1.0",
