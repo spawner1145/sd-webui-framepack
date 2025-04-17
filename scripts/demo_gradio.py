@@ -18,7 +18,6 @@ import traceback
 import einops
 import safetensors.torch as sf
 import numpy as np
-import argparse
 import math
 from PIL import Image
 from diffusers import AutoencoderKLHunyuanVideo
@@ -34,13 +33,10 @@ from transformers import SiglipImageProcessor, SiglipVisionModel
 from diffusers_helper.clip_vision import hf_clip_vision_encode
 from diffusers_helper.bucket_tools import find_nearest_bucket
 
-# 解析命令行参数
-parser = argparse.ArgumentParser()
-parser.add_argument('--share', action='store_true')
-parser.add_argument("--server", type=str, default='127.0.0.1')
-parser.add_argument("--port", type=int, default=7860)
-args = parser.parse_args()
-print(args)
+share = False
+server = '127.0.0.1'
+port = 7860
+print(f"share: {share}, server: {server}, port: {port}")
 
 # 设置输出文件夹
 outputs_folder = 'outputs'
@@ -380,7 +376,7 @@ if IN_WEBUI:
 else:
     block = create_ui()
     block.launch(
-        server_name=args.server,
-        server_port=args.port,
-        share=args.share,
+        server_name=server,
+        server_port=port,
+        share=share,
     )
