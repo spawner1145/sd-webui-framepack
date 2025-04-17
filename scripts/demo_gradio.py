@@ -33,6 +33,7 @@ from transformers import SiglipImageProcessor, SiglipVisionModel
 from diffusers_helper.clip_vision import hf_clip_vision_encode
 from diffusers_helper.bucket_tools import find_nearest_bucket
 
+# 直接赋值参数
 share = False
 server = '127.0.0.1'
 port = 7860
