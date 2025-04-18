@@ -36,7 +36,7 @@ from diffusers_helper.bucket_tools import find_nearest_bucket
 # 直接赋值参数
 share = False
 server = '127.0.0.1'
-port = 7860
+port = 7870
 print(f"share: {share}, server: {server}, port: {port}")
 
 # 设置输出文件夹
