@@ -37,7 +37,6 @@ def is_installed(pip_package):
 requirements = [
     "scikit-learn",
     "accelerate==1.6.0",
-    "diffusers",
     "transformers",
     "sentencepiece==0.2.0",
     "pillow==11.1.0",
@@ -50,10 +49,11 @@ requirements = [
     "opencv-contrib-python"
 ]
 
+try:
+    from diffusers import AutoencoderKLHunyuanVideo
+except:
+    launch.run_pip("install git+https://github.com/huggingface/diffusers.git", "diffusers from source")
+
 for module in requirements:
-    if module == "diffusers":
-        if not is_installed("diffusers>=0.33.1"):
-            launch.run_pip("install git+https://github.com/huggingface/diffusers.git", "diffusers from source")
-    else:
-        if not is_installed(module):
-            launch.run_pip(f"install {module}", module)
+    if not is_installed(module):
+        launch.run_pip(f"install {module}", module)
