@@ -1,4 +1,6 @@
 # sd-webui-framepack
+两种运行方法
+
 1.直接运行，在根目录下运行
 ```
 python -m scripts.demo_gradio
