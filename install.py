@@ -38,7 +38,7 @@ requirements = [
     "scikit-learn",
     "accelerate==1.6.0",
     "diffusers",
-    "transformers==4.46.2",
+    "transformers",
     "sentencepiece==0.2.0",
     "pillow==11.1.0",
     "av==12.1.0",
