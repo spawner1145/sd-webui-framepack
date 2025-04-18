@@ -42,7 +42,7 @@ requirements = [
     "sentencepiece==0.2.0",
     "pillow==11.1.0",
     "av==12.1.0",
-    "numpy==1.26.2",
+    "numpy",
     "scipy==1.12.0",
     "requests==2.31.0",
     "torchsde==0.2.6",
