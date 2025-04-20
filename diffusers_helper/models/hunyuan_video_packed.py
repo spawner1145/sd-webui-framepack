@@ -131,12 +131,22 @@ def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seq
         if sageattn is not None:
             x = sageattn(q, k, v, tensor_layout='NHD')
             #print(f"Output dtype: {x.dtype}")
-            return x.to(compute_dtype)
+            return x.to(original_dtype)
 
         if flash_attn_func is not None:
             x = flash_attn_func(q, k, v)
             #print(f"Output dtype: {x.dtype}")
-            return x.to(compute_dtype)
+            return x.to(original_dtype)
+        
+        if xformers_attn_func is not None:
+            try:
+                x = xformers_attn_func(q, k, v)
+                x = x.to(original_dtype) # Cast back to original dtype
+                return x
+            except NotImplementedError:
+                 # If xformers fails with float16, fall through to SDPA
+                 print("xFormers failed with float16, falling back to SDPA.")
+                 pass # Let SDPA handle it
 
         x = torch.nn.functional.scaled_dot_product_attention(
             q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
