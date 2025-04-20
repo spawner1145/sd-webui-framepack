@@ -152,6 +152,7 @@ def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, 
         if total_latent_sections > 4:
             latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
         for latent_padding in latent_paddings:
+            is_last_section = latent_padding == 0
             is_first_section = latent_padding == latent_paddings[0]
             latent_padding_size = latent_padding * latent_window_size
             if stream.input_queue.top() == 'end':
