@@ -115,58 +115,208 @@ def apply_rotary_emb_transposed(x, freqs_cis):
 
 
 def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv):
-    original_dtype = q.dtype
-    compute_dtype = torch.float16 if (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8) else original_dtype
-
-    # 打印当前精度信息
-    #print(f"Input dtype: {original_dtype}, Compute dtype: {compute_dtype}")
-
-    # 如果设备不支持 bf16，转换为 fp16
-    if compute_dtype == torch.float16:
-        q = q.to(dtype=torch.float16)
-        k = k.to(dtype=torch.float16)
-        v = v.to(dtype=torch.float16)
+    use_fp16 = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8
 
     if cu_seqlens_q is None and cu_seqlens_kv is None and max_seqlen_q is None and max_seqlen_kv is None:
         if sageattn is not None:
-            x = sageattn(q, k, v, tensor_layout='NHD')
-            #print(f"Output dtype: {x.dtype}")
-            return x.to(original_dtype)
+            if use_fp16:
+                q_fp16 = q.to(torch.float16)
+                k_fp16 = k.to(torch.float16)
+                v_fp16 = v.to(torch.float16)
+                try:
+                    x = sageattn(q_fp16, k_fp16, v_fp16, tensor_layout='NHD')
+                    x = x.to(q.dtype)
+                    return x
+                except NotImplementedError:
+                    print("SageAttn failed with float16, falling back to SDPA.")
+                    pass
+            else:
+                try:
+                    x = sageattn(q, k, v, tensor_layout='NHD')
+                    return x
+                except NotImplementedError:
+                    print("SageAttn failed, falling back to SDPA.")
+                    pass
 
         if flash_attn_func is not None:
-            x = flash_attn_func(q, k, v)
-            #print(f"Output dtype: {x.dtype}")
-            return x.to(original_dtype)
-        
-        if xformers_attn_func is not None:
-            try:
-                x = xformers_attn_func(q, k, v)
-                x = x.to(original_dtype) # Cast back to original dtype
-                return x
-            except NotImplementedError:
-                 # If xformers fails with float16, fall through to SDPA
-                 print("xFormers failed with float16, falling back to SDPA.")
-                 pass # Let SDPA handle it
+            if use_fp16:
+                q_fp16 = q.to(torch.float16)
+                k_fp16 = k.to(torch.float16)
+                v_fp16 = v.to(torch.float16)
+                try:
+                    x = flash_attn_func(q_fp16, k_fp16, v_fp16)
+                    x = x.to(q.dtype)
+                    return x
+                except NotImplementedError:
+                    print("FlashAttn failed with float16, falling back to SDPA.")
+                    pass
+            else:
+                try:
+                    x = flash_attn_func(q, k, v)
+                    return x
+                except NotImplementedError:
+                    print("FlashAttn failed, falling back to SDPA.")
+                    pass
 
-        x = torch.nn.functional.scaled_dot_product_attention(
-            q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-        ).transpose(1, 2)
-        #print(f"Output dtype: {x.dtype}")
-        return x.to(compute_dtype)
+        if xformers_attn_func is not None:
+            if use_fp16:
+                q_fp16 = q.to(torch.float16)
+                k_fp16 = k.to(torch.float16)
+                v_fp16 = v.to(torch.float16)
+                try:
+                    x = xformers_attn_func(q_fp16, k_fp16, v_fp16)
+                    x = x.to(q.dtype)
+                    return x
+                except NotImplementedError:
+                    print("xFormers failed with float16, falling back to SDPA.")
+                    pass
+            else:
+                try:
+                    x = xformers_attn_func(q, k, v)
+                    return x
+                except NotImplementedError:
+                    print("xFormers failed, falling back to SDPA.")
+                    pass
+
+        q_fallback = q.to(torch.float16) if use_fp16 else q
+        k_fallback = k.to(torch.float16) if use_fp16 else k
+        v_fallback = v.to(torch.float16) if use_fp16 else v
+        try:
+            x = torch.nn.functional.scaled_dot_product_attention(
+                q_fallback.transpose(1, 2), k_fallback.transpose(1, 2), v_fallback.transpose(1, 2)
+            ).transpose(1, 2)
+            x = x.to(q.dtype)
+            return x
+        except Exception as e_sdpa_fp16:
+            print(f"SDPA failed with float16: {e_sdpa_fp16}. Trying float32.")
+            q_fallback_fp32 = q.to(torch.float32)
+            k_fallback_fp32 = k.to(torch.float32)
+            v_fallback_fp32 = v.to(torch.float32)
+            try:
+                x = torch.nn.functional.scaled_dot_product_attention(
+                    q_fallback_fp32.transpose(1, 2), k_fallback_fp32.transpose(1, 2), v_fallback_fp32.transpose(1, 2)
+                ).transpose(1, 2)
+                x = x.to(q.dtype)
+                return x
+            except Exception as e_sdpa_fp32:
+                print(f"SDPA also failed with float32: {e_sdpa_fp32}. Raising original error.")
+                raise e_sdpa_fp16
 
     batch_size = q.shape[0]
+    q_orig_shape = q.shape
+    k_orig_shape = k.shape
+    v_orig_shape = v.shape
     q = q.view(q.shape[0] * q.shape[1], *q.shape[2:])
     k = k.view(k.shape[0] * k.shape[1], *k.shape[2:])
     v = v.view(v.shape[0] * v.shape[1], *v.shape[2:])
+
     if sageattn_varlen is not None:
-        x = sageattn_varlen(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
-    elif flash_attn_varlen_func is not None:
-        x = flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
+        if use_fp16:
+            q_fp16 = q.to(torch.float16)
+            k_fp16 = k.to(torch.float16)
+            v_fp16 = v.to(torch.float16)
+            try:
+                x = sageattn_varlen(q_fp16, k_fp16, v_fp16, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
+                x = x.to(q.dtype)
+            except Exception as e_sage:
+                print(f"Sage Attn failed: {e_sage}. Falling back.")
+                x = None
+        else:
+            try:
+                x = sageattn_varlen(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
+            except Exception as e_sage:
+                print(f"Sage Attn failed: {e_sage}. Falling back.")
+                x = None
     else:
-        raise NotImplementedError('No Attn Installed!')
-    x = x.view(batch_size, max_seqlen_q, *x.shape[2:])
-    #print(f"Output dtype: {x.dtype}")
-    return x.to(compute_dtype)
+        x = None
+
+    if x is None and flash_attn_varlen_func is not None:
+        if use_fp16:
+            q_fp16 = q.to(torch.float16)
+            k_fp16 = k.to(torch.float16)
+            v_fp16 = v.to(torch.float16)
+            try:
+                x = flash_attn_varlen_func(q_fp16, k_fp16, v_fp16, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
+                x = x.to(q.dtype)
+            except Exception as e_flash:
+                print(f"Flash Attn failed: {e_flash}. Falling back.")
+                x = None
+        else:
+            try:
+                x = flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
+            except Exception as e_flash:
+                print(f"Flash Attn failed: {e_flash}. Falling back.")
+                x = None
+
+    if x is None and xformers_attn_func is not None:
+        if use_fp16:
+            q_fp16 = q.to(torch.float16)
+            k_fp16 = k.to(torch.float16)
+            v_fp16 = v.to(torch.float16)
+            try:
+                print("Warning: Calling standard xformers attention for variable length sequence. This might be incorrect. Padding/unpadding or a dedicated varlen function might be needed.")
+                x = xformers_attn_func(q_fp16, k_fp16, v_fp16)
+                x = x.to(q.dtype)
+            except NotImplementedError:
+                print("xFormers (standard) failed for varlen with float16, falling back to SDPA.")
+                x = None
+            except Exception as e_xformers_varlen:
+                print(f"xFormers (standard) encountered an error for varlen: {e_xformers_varlen}. Falling back to SDPA.")
+                x = None
+        else:
+            try:
+                print("Warning: Calling standard xformers attention for variable length sequence. This might be incorrect. Padding/unpadding or a dedicated varlen function might be needed.")
+                x = xformers_attn_func(q, k, v)
+                x = x.to(q.dtype)
+            except NotImplementedError:
+                print("xFormers (standard) failed for varlen, falling back to SDPA.")
+                x = None
+            except Exception as e_xformers_varlen:
+                print(f"xFormers (standard) encountered an error for varlen: {e_xformers_varlen}. Falling back to SDPA.")
+                x = None
+
+    if x is None:
+        print("No specialized attention backend worked for varlen, falling back to basic SDPA (potentially incorrect for packed sequences).")
+        q_fallback = q.to(torch.float16) if use_fp16 else q
+        k_fallback = k.to(torch.float16) if use_fp16 else k
+        v_fallback = v.to(torch.float16) if use_fp16 else v
+        try:
+            x_list = []
+            for i in range(batch_size):
+                start_idx_q = cu_seqlens_q[2*i].item()
+                end_idx_q = cu_seqlens_q[2*i+1].item()
+                start_idx_kv = cu_seqlens_kv[2*i].item()
+                end_idx_kv = cu_seqlens_kv[2*i+1].item()
+
+                q_i = q_fallback[start_idx_q:end_idx_q].unsqueeze(0).transpose(1, 2)
+                k_i = k_fallback[start_idx_kv:end_idx_kv].unsqueeze(0).transpose(1, 2)
+                v_i = v_fallback[start_idx_kv:end_idx_kv].unsqueeze(0).transpose(1, 2)
+
+                q_i = q_i.view(1, -1, q_orig_shape[-2], q_orig_shape[-1]).transpose(1, 2)
+                k_i = k_i.view(1, -1, k_orig_shape[-2], k_orig_shape[-1]).transpose(1, 2)
+                v_i = v_i.view(1, -1, v_orig_shape[-2], v_orig_shape[-1]).transpose(1, 2)
+
+                out_i = torch.nn.functional.scaled_dot_product_attention(q_i, k_i, v_i).transpose(1, 2)
+                out_i = out_i.reshape(1, -1, q_orig_shape[-2] * q_orig_shape[-1])
+                x_list.append(out_i.squeeze(0))
+
+            padded_x_list = []
+            for x_i in x_list:
+                pad_len = max_seqlen_q - x_i.shape[0]
+                if pad_len > 0:
+                    padded_x_i = torch.nn.functional.pad(x_i, (0, 0, 0, pad_len))
+                    padded_x_list.append(padded_x_i)
+                else:
+                    padded_x_list.append(x_i)
+
+            x = torch.stack(padded_x_list, dim=0)
+            x = x.to(q.dtype)
+        except Exception as e_sdpa_varlen:
+            print(f"Manual SDPA loop for varlen failed: {e_sdpa_varlen}")
+            raise NotImplementedError("Could not execute attention with any backend for variable sequence lengths.")
+
+    x = x.view(batch_size, max_seqlen_q, *q_orig_shape[2:])
+    return x
 
 
 class HunyuanAttnProcessorFlashAttnDouble:
