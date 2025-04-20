@@ -155,7 +155,7 @@ def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seq
     else:
         raise NotImplementedError('No Attn Installed!')
     x = x.view(batch_size, max_seqlen_q, *x.shape[2:])
-    print(f"Output dtype: {x.dtype}")
+    #print(f"Output dtype: {x.dtype}")
     return x.to(compute_dtype)
 
 
