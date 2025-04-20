@@ -115,7 +115,7 @@ def apply_rotary_emb_transposed(x, freqs_cis):
 
 
 def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv):
-    use_fp16 = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8
+    use_fp16 = torch.cuda.is_available() and not torch.cuda.is_bf16_supported()
 
     if cu_seqlens_q is None and cu_seqlens_kv is None and max_seqlen_q is None and max_seqlen_kv is None:
         if sageattn is not None:
