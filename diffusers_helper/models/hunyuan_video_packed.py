@@ -61,6 +61,15 @@ except:
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
+def check_bf16_support():
+    """检查当前设备是否支持 bfloat16，若不支持则返回 True 表示需要转换为 float16"""
+    if torch.cuda.is_available():
+        device = torch.cuda.current_device()
+        major, _ = torch.cuda.get_device_capability(device)
+        return major < 8  # bf16 需要 CUDA 架构 >= 8.0（Ampere 及以上）
+    return True  # 非 CUDA 设备默认需要转换为 fp16
+
+
 def pad_for_3d_conv(x, kernel_size):
     b, c, t, h, w = x.shape
     pt, ph, pw = kernel_size
@@ -106,26 +115,39 @@ def apply_rotary_emb_transposed(x, freqs_cis):
 
 
 def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv):
+    original_dtype = q.dtype
+    compute_dtype = torch.float16 if (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8) else original_dtype
+
+    # 打印当前精度信息
+    #print(f"Input dtype: {original_dtype}, Compute dtype: {compute_dtype}")
+
+    # 如果设备不支持 bf16，转换为 fp16
+    if compute_dtype == torch.float16:
+        q = q.to(dtype=torch.float16)
+        k = k.to(dtype=torch.float16)
+        v = v.to(dtype=torch.float16)
+
     if cu_seqlens_q is None and cu_seqlens_kv is None and max_seqlen_q is None and max_seqlen_kv is None:
         if sageattn is not None:
             x = sageattn(q, k, v, tensor_layout='NHD')
-            return x
+            #print(f"Output dtype: {x.dtype}")
+            return x.to(compute_dtype)
 
         if flash_attn_func is not None:
             x = flash_attn_func(q, k, v)
-            return x
+            #print(f"Output dtype: {x.dtype}")
+            return x.to(compute_dtype)
 
-        if xformers_attn_func is not None:
-            x = xformers_attn_func(q, k, v)
-            return x
-
-        x = torch.nn.functional.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)).transpose(1, 2)
-        return x
+        x = torch.nn.functional.scaled_dot_product_attention(
+            q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+        ).transpose(1, 2)
+        #print(f"Output dtype: {x.dtype}")
+        return x.to(compute_dtype)
 
     batch_size = q.shape[0]
     q = q.view(q.shape[0] * q.shape[1], *q.shape[2:])
     k = k.view(k.shape[0] * k.shape[1], *k.shape[2:])
-    v = v.view(v.shape[0] * v.shape[1], *v.shape[2:])
+    v = v.view(v.shape[0] * v.shape[1], *k.shape[2:])
     if sageattn_varlen is not None:
         x = sageattn_varlen(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
     elif flash_attn_varlen_func is not None:
@@ -133,7 +155,8 @@ def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seq
     else:
         raise NotImplementedError('No Attn Installed!')
     x = x.view(batch_size, max_seqlen_q, *x.shape[2:])
-    return x
+    print(f"Output dtype: {x.dtype}")
+    return x.to(compute_dtype)
 
 
 class HunyuanAttnProcessorFlashAttnDouble:
