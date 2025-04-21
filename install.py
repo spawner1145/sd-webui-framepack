@@ -52,7 +52,7 @@ requirements = [
 try:
     from diffusers import AutoencoderKLHunyuanVideo
 except:
-    launch.run_pip("install git+https://github.com/huggingface/diffusers.git", "diffusers from source")
+    launch.run_pip("install diffusers==0.33.1", "diffusers")
 
 for module in requirements:
     if not is_installed(module):
