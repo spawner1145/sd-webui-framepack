@@ -1,5 +1,5 @@
 accelerate==1.6.0
-git+https://github.com/huggingface/diffusers
+diffusers==0.33.1
 transformers
 gradio==5.23.0
 sentencepiece==0.2.0
