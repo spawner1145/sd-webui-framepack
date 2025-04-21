@@ -4,6 +4,8 @@
 两种运行方法
 
 1.直接运行，在根目录下运行
+
+## 注意，直接运行不要运行`install.py`，自己去requirements.txt把依赖装好，别忘了装torch和torchvision，然后建议xformers，flash attention或者sage attention装上，否则会很慢
 ```
 python -m scripts.demo_gradio
 ```
