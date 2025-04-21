@@ -3,15 +3,15 @@
 
 两种运行方法
 
-1.直接运行，在根目录下运行
+### 1.直接运行，在根目录下运行
 ```
 python -m scripts.demo_gradio
 ```
 #### 注意，直接运行不要运行`install.py`，自己去`requirements.txt`把依赖装好，别忘了装`torch`和`torchvision`，然后建议`xformers`(配套装Triton，windows安装上网查)，`flash attention`或者`sage attention`装上，否则会很慢
 
-2.扔进webui的extensions文件夹里，模型将会自动下载在`models/hunyuan`
+### 2.扔进webui的extensions文件夹里，模型将会自动下载在`models/hunyuan`
 
-## 重要：关于环境冲突
+#### 重要：关于作为插件时的环境冲突
 根据测试，冲突的环境有这些：
 ```
 Installed version of accelerate (0.31.0) does not satisfy the requirement (==1.6.0).
