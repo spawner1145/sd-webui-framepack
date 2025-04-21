@@ -23,4 +23,4 @@ Installing pillow==11.1.0
 ```
 解决方法是去你的webui根目录下，找到requirements_versions.txt，把里面相关的冲突依赖删掉，有效避免每次启动都安装依赖
 
-顺便有些插件，例如supermerger，你可以启动过一次以后直接把插件目录的install.py删了
+不过如果要省事你可以在启动成功后加上启动参数`--skip-prepare-environment`，这样下次启动就不用依赖安装浪费一堆时间了
