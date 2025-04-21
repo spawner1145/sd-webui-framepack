@@ -7,6 +7,7 @@
 ```
 python -m scripts.demo_gradio
 ```
+或者双击`单独启动.bat`
 #### 注意，直接运行不要运行`install.py`，而是先装`torch`和`torchvision`，然后`pip install -r requirements.txt`把必要依赖装好，然后建议`xformers`(配套装triton，windows安装方法上网查)，`flash attention`或者`sage attention`装上，否则会很慢
 
 ### 2.扔进webui的extensions文件夹里，模型将会自动下载在`models/hunyuan`
