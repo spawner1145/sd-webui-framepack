@@ -78,7 +78,7 @@ stream = AsyncStream()
 models_loaded = False
 
 @torch.no_grad()
-def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution):
     global text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, feature_extractor, image_encoder, transformer
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
@@ -100,7 +100,7 @@ def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, 
         llama_vec_n, llama_attention_mask_n = crop_or_pad_yield_mask(llama_vec_n, length=512)
         stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Processing start frame ...'))))
         H, W, C = input_image.shape
-        height, width = find_nearest_bucket(H, W, resolution=640)
+        height, width = find_nearest_bucket(H, W, resolution=resolution)
         input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
         Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}_start.png'))
         input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
@@ -251,7 +251,7 @@ def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, 
     stream.output_queue.push(('end', None))
     return
 
-def process(input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+def process(input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution):
     global stream, text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, feature_extractor, image_encoder, transformer, models_loaded
     assert input_image is not None, 'No input image!'
 
@@ -338,7 +338,7 @@ def process(input_image, end_image, prompt, n_prompt, seed, total_second_length,
 
     yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True)
     stream = AsyncStream()
-    async_run(worker, input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
+    async_run(worker, input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution)
     output_filename = None
     while True:
         flag, data = stream.output_queue.next()
@@ -375,6 +375,7 @@ def create_ui():
                     with gr.Column():
                         end_image = gr.Image(sources='upload', type="numpy", label="End Frame (Optional)", height=320)
                 prompt = gr.Textbox(label="Prompt", value='')
+                resolution = gr.Slider(label="Resolution", minimum=240, maximum=720, value=640, step=16)
                 example_quick_prompts = gr.Dataset(samples=quick_prompts, label='Quick List', samples_per_page=1000, components=[prompt])
                 example_quick_prompts.click(lambda x: x[0], inputs=[example_quick_prompts], outputs=prompt, show_progress=False, queue=False)
                 with gr.Row():
@@ -399,7 +400,7 @@ def create_ui():
                 progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
                 progress_bar = gr.HTML('', elem_classes='no-generating-animation')
         gr.HTML('<div style="text-align:center; margin-top:20px;">Share your results and find ideas at the <a href="https://x.com/search?q=framepack&f=live" target="_blank">FramePack Twitter (X) thread</a></div>')
-        ips = [input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf]
+        ips = [input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution]
         start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button])
         end_button.click(fn=end_process)
     return block
