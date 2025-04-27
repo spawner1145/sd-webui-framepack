@@ -1,2 +1,2 @@
-python -m scripts.demo_gradio
+python -m scripts.app
 pause
