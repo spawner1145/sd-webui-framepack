@@ -54,7 +54,7 @@ def create_ui():
                         example_quick_prompts.click(lambda x: x[0], inputs=[example_quick_prompts], outputs=prompt, show_progress=False, queue=False)
                         with gr.Accordion("Prompt Parameters", open=False):
                             blend_sections = gr.Slider(minimum=0, maximum=10, value=4, step=1, label="Number of sections to blend between prompts")
-                        with gr.Accordion("Generation Parameters", open=True):
+                        with gr.Accordion("Generation Parameters", open=False):
                             with gr.Row():
                                 steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
                                 total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=5, step=0.1)
@@ -81,7 +81,7 @@ def create_ui():
                             gpu_memory_preservation = gr.Slider(label="GPU Inference Preserved Memory (GB)", minimum=0, maximum=128, value=6, step=0.1)
                         with gr.Accordion("Output Parameters", open=False):
                             mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1)
-                            clean_up_videos = gr.Checkbox(label="Clean up video files", value=True)
+                            clean_up_videos = gr.Checkbox(label="Clean up video files", value=False)
                         with gr.Row():
                             start_button = gr.Button(value="Generate")
                             end_button = gr.Button(value="Cancel", interactive=True)
