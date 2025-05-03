@@ -1,6 +1,6 @@
 accelerate==1.6.0
 diffusers==0.33.1
-transformers
+transformers==4.46.2
 gradio==5.23.0
 sentencepiece==0.2.0
 pillow==11.1.0
@@ -9,7 +9,11 @@ numpy==1.26.2
 scipy==1.12.0
 requests==2.31.0
 torchsde==0.2.6
-
+jinja2>=3.1.2
+torchvision
 einops
 opencv-contrib-python
 safetensors
+peft
+fastapi
+pydantic
