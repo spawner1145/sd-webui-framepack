@@ -41,7 +41,7 @@ def create_ui():
                     with gr.Column():
                         with gr.Row():
                             with gr.Column():
-                                input_image = gr.Image(sources='upload', type="numpy", label="Start Frame", height=320, elem_classes="contain-image")
+                                input_image = gr.Image(sources='upload', type="numpy", label="Start Frame (Optional)", height=320, elem_classes="contain-image")
                             with gr.Column():
                                 end_image = gr.Image(sources='upload', type="numpy", label="End Frame (Optional)", height=320, elem_classes="contain-image")
                         with gr.Accordion("Latent Image Options", open=False):
