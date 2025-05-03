@@ -21,6 +21,14 @@ if os.path.isdir(lora_dir):
 # Gradio界面构建函数
 def create_ui():
     css = make_progress_bar_css()
+    css += """
+    .contain-image img {
+        object-fit: contain !important;
+        width: 100% !important;
+        height: 100% !important;
+        background: #222;
+    }
+    """
     section_boundaries = get_section_boundaries()
     quick_prompts = get_quick_prompts()
     
@@ -52,6 +60,7 @@ def create_ui():
                                 total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=5, step=0.1)
                             with gr.Row():
                                 lora_selector = gr.Dropdown(choices=lora_names, label="Select LoRAs", multiselect=True, value=[])
+                                gr.Markdown("No LoRA models found. Please upload .safetensors files in the LoRA Management tab.", visible=len(lora_names) == 0)
                                 lora_sliders = {}
                                 for lora in lora_names:
                                     lora_sliders[lora] = gr.Slider(minimum=0.0, maximum=2.0, value=1.0, step=0.01, label=f"{lora} Weight", visible=False)
@@ -66,9 +75,9 @@ def create_ui():
                                 randomize_seed = gr.Checkbox(label="Randomize", value=False)
                         with gr.Accordion("Advanced Parameters", open=False):
                             latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1)
-                            cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)
+                            cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01)
                             gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
-                            rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01, visible=False)
+                            rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01)
                             gpu_memory_preservation = gr.Slider(label="GPU Inference Preserved Memory (GB)", minimum=0, maximum=128, value=6, step=0.1)
                         with gr.Accordion("Output Parameters", open=False):
                             mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1)
@@ -76,6 +85,7 @@ def create_ui():
                         with gr.Row():
                             start_button = gr.Button(value="Generate")
                             end_button = gr.Button(value="Cancel", interactive=True)
+                        error_message = gr.Markdown("", visible=False)
                     with gr.Column():
                         preview_image = gr.Image(label="Next Latents", height=200, visible=True)
                         result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=512, loop=True)
@@ -93,10 +103,15 @@ def create_ui():
         
         # LoRA列表刷新
         def list_loras():
+            global lora_names
             loras = []
+            lora_names = []
             for file in os.listdir(lora_dir):
-                if file.endswith('.safetensors'):
-                    loras.append([file.split('.')[0], os.path.join(lora_dir, file), "Loaded" if file.split('.')[0] in lora_names else "Not Loaded"])
+                if file.endswith('.safetensors') or file.endswith('.pt'):
+                    lora_base_name = file.split('.')[0]
+                    loras.append([lora_base_name, os.path.join(lora_dir, file), "Loaded"])
+                    if lora_base_name not in lora_names:
+                        lora_names.append(lora_base_name)
             return loras
         
         # LoRA滑块更新
@@ -105,8 +120,9 @@ def create_ui():
         
         # LoRA上传处理
         def handle_lora_upload(file):
+            global lora_names, lora_sliders
             if not file:
-                return gr.update(), "No file uploaded"
+                return gr.update(), "No file uploaded", gr.update()
             try:
                 _, lora_name = os.path.split(file.name)
                 lora_dest = os.path.join(lora_dir, lora_name)
@@ -115,24 +131,26 @@ def create_ui():
                 lora_base_name = lora_name.split('.')[0]
                 if lora_base_name not in lora_names:
                     lora_names.append(lora_base_name)
-                return gr.update(choices=lora_names), f"Successfully uploaded {lora_name}"
+                    lora_sliders[lora_base_name] = gr.Slider(minimum=0.0, maximum=2.0, value=1.0, step=0.01, label=f"{lora_base_name} Weight", visible=False)
+                return gr.update(choices=lora_names), f"Successfully uploaded {lora_name}", gr.update()
             except Exception as e:
-                return gr.update(), f"Error uploading LoRA: {e}"
+                return gr.update(), f"Error uploading LoRA: {e}", gr.update()
         
         # JSON元数据加载
         def load_metadata_from_json(json_path):
             if not json_path:
-                return [gr.update(), gr.update()]
+                return [gr.update(), gr.update(), gr.update()]
             try:
                 import json
                 with open(json_path, 'r') as f:
                     metadata = json.load(f)
                 return [
                     gr.update(value=metadata.get('prompt')),
-                    gr.update(value=metadata.get('seed'))
+                    gr.update(value=metadata.get('seed')),
+                    gr.update()
                 ]
             except Exception as e:
-                return [gr.update(), gr.update()]
+                return [gr.update(), gr.update(), gr.update(value=f"Error loading JSON: {e}")]
         
         # 处理生成请求
         def process_directly(*args):
@@ -140,32 +158,37 @@ def create_ui():
             lora_values = args[22:]
             if randomize_seed_checked:
                 seed_value = random.randint(0, 2**32 - 1)
-            outputs = process(
-                input_image=input_image,
-                end_image=end_image,
-                latent_type=latent_type,
-                prompt_text=prompt_text,
-                n_prompt=n_prompt,
-                seed=seed_value,
-                total_second_length=total_second_length,
-                latent_window_size=latent_window_size,
-                steps=steps,
-                cfg=cfg,
-                gs=gs,
-                rs=rs,
-                gpu_memory_preservation=gpu_memory_preservation,
-                use_teacache=use_teacache,
-                mp4_crf=mp4_crf,
-                resolution=640,  # 默认分辨率，可根据需要调整
-                save_metadata=save_metadata,
-                blend_sections=blend_sections,
-                clean_up_videos=clean_up_videos,
-                selected_loras=lora_selector,
-                lora_values=lora_values
-            )
-            video_path, preview, desc, html = outputs
-            new_seed = random.randint(0, 2**32 - 1) if randomize_seed_checked else seed_value
-            return [video_path, preview, desc, html, gr.update(), gr.update(), gr.update(value=new_seed)]
+            try:
+                outputs = process(
+                    input_image=input_image,
+                    end_image=end_image,
+                    latent_type=latent_type,
+                    prompt_text=prompt_text,
+                    n_prompt=n_prompt,
+                    seed=seed_value,
+                    total_second_length=total_second_length,
+                    latent_window_size=latent_window_size,
+                    steps=steps,
+                    cfg=cfg,
+                    gs=gs,
+                    rs=rs,
+                    gpu_memory_preservation=gpu_memory_preservation,
+                    use_teacache=use_teacache,
+                    mp4_crf=mp4_crf,
+                    resolution=640,
+                    save_metadata=save_metadata,
+                    blend_sections=blend_sections,
+                    clean_up_videos=clean_up_videos,
+                    selected_loras=lora_selector,
+                    lora_values=lora_values
+                )
+                video_path, preview, desc, html = outputs
+                new_seed = random.randint(0, 2**32 - 1) if randomize_seed_checked else seed_value
+                return [video_path, preview, desc, html, gr.update(), gr.update(), gr.update(value=new_seed), gr.update()]
+            except Exception as e:
+                desc = f"Error: Failed to generate video: {str(e)}"
+                html = make_progress_bar_html(0, desc)
+                return [None, None, desc, html, gr.update(), gr.update(), gr.update(), gr.update(value=desc, visible=True)]
         
         # 输入参数
         ips = [
@@ -178,12 +201,12 @@ def create_ui():
         start_button.click(
             fn=process_directly,
             inputs=ips,
-            outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button, seed]
+            outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button, seed, error_message]
         )
         end_button.click(fn=end_process, outputs=[])
         lora_selector.change(fn=update_lora_sliders, inputs=[lora_selector], outputs=[lora_sliders[lora] for lora in lora_names])
-        lora_upload.change(fn=handle_lora_upload, inputs=[lora_upload], outputs=[lora_selector, lora_upload_status])
-        json_upload.change(fn=load_metadata_from_json, inputs=[json_upload], outputs=[prompt, seed])
+        lora_upload.change(fn=handle_lora_upload, inputs=[lora_upload], outputs=[lora_selector, lora_upload_status, error_message])
+        json_upload.change(fn=load_metadata_from_json, inputs=[json_upload], outputs=[prompt, seed, error_message])
         refresh_lora_btn.click(fn=list_loras, outputs=[lora_list])
     
     return block
