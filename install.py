@@ -46,7 +46,8 @@ requirements = [
     "requests==2.31.0",
     "torchsde==0.2.6",
     "einops",
-    "opencv-contrib-python"
+    "opencv-contrib-python",
+    "peft"
 ]
 
 try:
