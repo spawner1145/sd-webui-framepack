@@ -23,7 +23,7 @@ except ImportError:
 HOST = "127.0.0.1"
 PORT_GRADIO = 7870
 PORT_API = 7871
-SHARE = False
+SHARE = True
 
 if IN_WEBUI:
     from backend_fp.api import on_app_started
