@@ -21,6 +21,7 @@ if os.path.isdir(lora_dir):
 
 # Gradio界面构建函数
 def create_ui():
+    global lora_names, lora_sliders
     css = make_progress_bar_css()
     css += """
     .contain-image img {
