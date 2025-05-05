@@ -541,7 +541,7 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
                     video_path = data
                     yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
                 elif flag == 'end':
-                    yield video_path, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update()
+                    yield data, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update()
                     break
             except IndexError:
                 time.sleep(0.1)
