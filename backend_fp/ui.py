@@ -13,6 +13,7 @@ os.makedirs(lora_dir, exist_ok=True)
 
 # 加载LoRA文件列表
 lora_names = []
+lora_sliders = {}
 if os.path.isdir(lora_dir):
     lora_files = [f for f in os.listdir(lora_dir) if f.endswith('.safetensors') or f.endswith('.pt')]
     for lora_file in lora_files:
@@ -41,7 +42,7 @@ def create_ui():
                     with gr.Column():
                         with gr.Row():
                             with gr.Column():
-                                input_image = gr.Image(sources='upload', type="numpy", label="Start Frame (Optional)", height=320, elem_classes="contain-image")
+                                input_image = gr.Image(sources='upload', type="numpy", label="Start Frame", height=320, elem_classes="contain-image")
                             with gr.Column():
                                 end_image = gr.Image(sources='upload', type="numpy", label="End Frame (Optional)", height=320, elem_classes="contain-image")
                         with gr.Accordion("Latent Image Options", open=False):
@@ -50,18 +51,18 @@ def create_ui():
                                 info="Used as a starting point if no start frame is provided"
                             )
                         prompt = gr.Textbox(label="Prompt", value='The girl dances gracefully, with clear movements, full of charm.')
+                        resolution = gr.Slider(label="Resolution", minimum=240, maximum=720, value=640, step=16)
                         example_quick_prompts = gr.Dataset(samples=quick_prompts, label='Quick List', samples_per_page=1000, components=[prompt])
                         example_quick_prompts.click(lambda x: x[0], inputs=[example_quick_prompts], outputs=prompt, show_progress=False, queue=False)
                         with gr.Accordion("Prompt Parameters", open=False):
                             blend_sections = gr.Slider(minimum=0, maximum=10, value=4, step=1, label="Number of sections to blend between prompts")
-                        with gr.Accordion("Generation Parameters", open=False):
+                        with gr.Accordion("Generation Parameters", open=True):
                             with gr.Row():
                                 steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
                                 total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=5, step=0.1)
                             with gr.Row():
                                 lora_selector = gr.Dropdown(choices=lora_names, label="Select LoRAs", multiselect=True, value=[])
                                 gr.Markdown("No LoRA models found. Please upload .safetensors files in the LoRA Management tab.", visible=len(lora_names) == 0)
-                                lora_sliders = {}
                                 for lora in lora_names:
                                     lora_sliders[lora] = gr.Slider(minimum=0.0, maximum=2.0, value=1.0, step=0.01, label=f"{lora} Weight", visible=False)
                             with gr.Row():
@@ -81,7 +82,7 @@ def create_ui():
                             gpu_memory_preservation = gr.Slider(label="GPU Inference Preserved Memory (GB)", minimum=0, maximum=128, value=6, step=0.1)
                         with gr.Accordion("Output Parameters", open=False):
                             mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1)
-                            clean_up_videos = gr.Checkbox(label="Clean up video files", value=False)
+                            clean_up_videos = gr.Checkbox(label="Clean up video files", value=True)
                         with gr.Row():
                             start_button = gr.Button(value="Generate")
                             end_button = gr.Button(value="Cancel", interactive=True)
@@ -154,12 +155,12 @@ def create_ui():
         
         # 处理生成请求
         def process_directly(*args):
-            input_image, end_image, latent_type, prompt_text, _, n_prompt, blend_sections, steps, total_second_length, lora_selector, json_upload, save_metadata, use_teacache, seed_value, randomize_seed_checked, latent_window_size, cfg, gs, rs, gpu_memory_preservation, mp4_crf, clean_up_videos = args[:22]
-            lora_values = args[22:]
+            input_image, end_image, latent_type, prompt_text, _, n_prompt, blend_sections, steps, total_second_length, lora_selector, json_upload, save_metadata, use_teacache, seed_value, randomize_seed_checked, latent_window_size, cfg, gs, rs, gpu_memory_preservation, mp4_crf, clean_up_videos, resolution = args[:23]
+            lora_values = args[23:]
             if randomize_seed_checked:
                 seed_value = random.randint(0, 2**32 - 1)
             try:
-                outputs = process(
+                for outputs in process(
                     input_image=input_image,
                     end_image=end_image,
                     latent_type=latent_type,
@@ -175,26 +176,26 @@ def create_ui():
                     gpu_memory_preservation=gpu_memory_preservation,
                     use_teacache=use_teacache,
                     mp4_crf=mp4_crf,
-                    resolution=640,
+                    resolution=resolution,
                     save_metadata=save_metadata,
                     blend_sections=blend_sections,
                     clean_up_videos=clean_up_videos,
                     selected_loras=lora_selector,
-                    lora_values=lora_values
-                )
-                video_path, preview, desc, html = outputs
-                new_seed = random.randint(0, 2**32 - 1) if randomize_seed_checked else seed_value
-                return [video_path, preview, desc, html, gr.update(), gr.update(), gr.update(value=new_seed), gr.update()]
+                    lora_values=lora_values,
+                    randomize_seed=randomize_seed_checked
+                ):
+                    video_path, preview, desc, html, start_button_state, end_button_state, seed_state, error_state = outputs
+                    yield [video_path, preview, desc, html, start_button_state, end_button_state, seed_state, error_state]
             except Exception as e:
                 desc = f"Error: Failed to generate video: {str(e)}"
                 html = make_progress_bar_html(0, desc)
-                return [None, None, desc, html, gr.update(), gr.update(), gr.update(), gr.update(value=desc, visible=True)]
+                yield [None, None, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=seed_value), gr.update(value=desc, visible=True)]
         
         # 输入参数
         ips = [
             input_image, end_image, latent_type, prompt, example_quick_prompts, n_prompt, blend_sections,
             steps, total_second_length, lora_selector, json_upload, save_metadata, use_teacache, seed, randomize_seed,
-            latent_window_size, cfg, gs, rs, gpu_memory_preservation, mp4_crf, clean_up_videos
+            latent_window_size, cfg, gs, rs, gpu_memory_preservation, mp4_crf, clean_up_videos, resolution
         ] + [lora_sliders[lora] for lora in lora_names]
         
         # 连接事件
