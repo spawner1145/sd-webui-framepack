@@ -18,7 +18,7 @@ from diffusers_helper.utils import save_bcthw_as_mp4, crop_or_pad_yield_mask, so
 from diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
 from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
 from diffusers_helper.memory import cpu, gpu, get_cuda_free_memory_gb, move_model_to_device_with_memory_preservation, offload_model_from_device_for_memory_preservation, fake_diffusers_current_device, DynamicSwapInstaller, unload_complete_models, load_model_as_complete
-from diffusers_helper.thread_utils import AsyncStream
+from diffusers_helper.thread_utils import AsyncStream, async_run
 from diffusers_helper.gradio.progress_bar import make_progress_bar_html
 from transformers import SiglipImageProcessor, SiglipVisionModel
 from diffusers_helper.clip_vision import hf_clip_vision_encode
@@ -27,6 +27,7 @@ import random
 from diffusers_helper import lora_utils
 from backend_fp.prompt_handler import parse_timestamped_prompt
 
+# 设置输出和缓存目录
 outputs_folder = 'outputs/hunyuan'
 try:
     os.makedirs(outputs_folder, exist_ok=True)
@@ -43,11 +44,13 @@ except Exception as e:
     cache_dir = os.path.join('models', 'hunyuan_fallback')
     os.makedirs(cache_dir, exist_ok=True)
 
+# 检查 GPU 内存
 free_mem_gb = get_cuda_free_memory_gb(gpu)
 high_vram = free_mem_gb > 60
 print(f'Free VRAM {free_mem_gb} GB')
 print(f'High-VRAM Mode: {high_vram}')
 
+# 全局模型变量
 text_encoder = None
 text_encoder_2 = None
 tokenizer = None
@@ -58,6 +61,7 @@ image_encoder = None
 transformer = None
 stream = AsyncStream()
 
+# LoRA 目录和文件
 lora_dir = 'models/hunyuan/lora'
 os.makedirs(lora_dir, exist_ok=True)
 lora_names = [f.split('.')[0] for f in os.listdir(lora_dir) if f.endswith('.safetensors') or f.endswith('.pt')]
@@ -65,6 +69,7 @@ lora_names = [f.split('.')[0] for f in os.listdir(lora_dir) if f.endswith('.safe
 models_loaded = False
 
 def move_lora_adapters_to_device(model, target_device):
+    """将 LoRA 适配器移动到指定设备"""
     print(f"Moving all LoRA adapters to {target_device}")
     lora_modules = []
     for name, module in model.named_modules():
@@ -95,6 +100,7 @@ def move_lora_adapters_to_device(model, target_device):
 
 @torch.no_grad()
 def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, save_metadata, blend_sections, latent_type, clean_up_videos, selected_loras, lora_values=None, job_stream=None):
+    """处理视频生成的核心工作函数"""
     global text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, feature_extractor, image_encoder, transformer
     stream_to_use = job_stream if job_stream is not None else stream
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
@@ -128,7 +134,7 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
                 last_prompt = section.prompt
         if cfg == 1:
             llama_vec_n, clip_l_pooler_n = torch.zeros_like(encoded_prompts[prompt_sections[0].prompt][0]), torch.zeros_like(encoded_prompts[prompt_sections[0].prompt][2])
-            llama_attention_mask_n = torch.zeros_like(encoded_prompts[prompt_sections[0].prompt][1])  # Initialize with zeros
+            llama_attention_mask_n = torch.zeros_like(encoded_prompts[prompt_sections[0].prompt][1])
         else:
             llama_vec_n, clip_l_pooler_n = encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
             llama_vec_n, llama_attention_mask_n = crop_or_pad_yield_mask(llama_vec_n, length=512)
@@ -412,52 +418,53 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
         stream_to_use.output_queue.push(('end', None))
         raise e
 
-def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, save_metadata, blend_sections, clean_up_videos, selected_loras, lora_values):
+def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, save_metadata, blend_sections, clean_up_videos, selected_loras, lora_values, randomize_seed=False):
+    """处理视频生成请求的主函数，流式返回8个值以匹配UI输出"""
     global stream, text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, feature_extractor, image_encoder, transformer, models_loaded
     if not models_loaded:
         print("Loading models...")
         text_encoder = LlamaModel.from_pretrained(
-            "hunyuanvideo-community/HunyuanVideo", 
-            subfolder='text_encoder', 
-            torch_dtype=torch.float16, 
+            "hunyuanvideo-community/HunyuanVideo",
+            subfolder='text_encoder',
+            torch_dtype=torch.float16,
             cache_dir=cache_dir
         ).cpu()
         text_encoder_2 = CLIPTextModel.from_pretrained(
-            "hunyuanvideo-community/HunyuanVideo", 
-            subfolder='text_encoder_2', 
-            torch_dtype=torch.float16, 
+            "hunyuanvideo-community/HunyuanVideo",
+            subfolder='text_encoder_2',
+            torch_dtype=torch.float16,
             cache_dir=cache_dir
         ).cpu()
         tokenizer = LlamaTokenizerFast.from_pretrained(
-            "hunyuanvideo-community/HunyuanVideo", 
-            subfolder='tokenizer', 
+            "hunyuanvideo-community/HunyuanVideo",
+            subfolder='tokenizer',
             cache_dir=cache_dir
         )
         tokenizer_2 = CLIPTokenizer.from_pretrained(
-            "hunyuanvideo-community/HunyuanVideo", 
-            subfolder='tokenizer_2', 
+            "hunyuanvideo-community/HunyuanVideo",
+            subfolder='tokenizer_2',
             cache_dir=cache_dir
         )
         vae = AutoencoderKLHunyuanVideo.from_pretrained(
-            "hunyuanvideo-community/HunyuanVideo", 
-            subfolder='vae', 
-            torch_dtype=torch.float16, 
+            "hunyuanvideo-community/HunyuanVideo",
+            subfolder='vae',
+            torch_dtype=torch.float16,
             cache_dir=cache_dir
         ).cpu()
         feature_extractor = SiglipImageProcessor.from_pretrained(
-            "lllyasviel/flux_redux_bfl", 
-            subfolder='feature_extractor', 
+            "lllyasviel/flux_redux_bfl",
+            subfolder='feature_extractor',
             cache_dir=cache_dir
         )
         image_encoder = SiglipVisionModel.from_pretrained(
-            "lllyasviel/flux_redux_bfl", 
-            subfolder='image_encoder', 
-            torch_dtype=torch.float16, 
+            "lllyasviel/flux_redux_bfl",
+            subfolder='image_encoder',
+            torch_dtype=torch.float16,
             cache_dir=cache_dir
         ).cpu()
         transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
-            'lllyasviel/FramePackI2V_HY', 
-            torch_dtype=torch.bfloat16, 
+            'lllyasviel/FramePackI2V_HY',
+            torch_dtype=torch.bfloat16,
             cache_dir=cache_dir
         ).cpu()
         vae.eval()
@@ -494,13 +501,19 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
     preview = None
     desc = ''
     html = ''
+    error_message = ''
+    new_seed = seed if not randomize_seed else random.randint(0, 2**32 - 1)
     try:
-        video_path = worker(
+        # 初始状态：禁用开始按钮，启用取消按钮
+        yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
+        stream = AsyncStream()
+        async_run(
+            worker,
             input_image=input_image.copy() if input_image is not None else None,
             end_image=end_image,
             prompt_text=prompt_text,
             n_prompt=n_prompt,
-            seed=seed,
+            seed=new_seed,
             total_second_length=total_second_length,
             latent_window_size=latent_window_size,
             steps=steps,
@@ -520,12 +533,15 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
         )
         while True:
             try:
-                flag, data = stream.next()
+                flag, data = stream.output_queue.next()
                 if flag == 'progress':
                     preview, desc, html = data
+                    yield None, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
                 elif flag == 'file':
                     video_path = data
+                    yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
                 elif flag == 'end':
+                    yield video_path, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update()
                     break
             except IndexError:
                 time.sleep(0.1)
@@ -533,9 +549,13 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
     except Exception as e:
         desc = f"Error: {str(e)}"
         html = make_progress_bar_html(0, desc)
-    return video_path, preview, desc, html
+        error_message = desc
+        yield video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update(value=error_message, visible=True)
+    # 最终返回（仅在异常情况下使用，通常通过 yield 退出）
+    return video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update(value=error_message, visible=True)
 
 def end_process():
+    """取消生成过程"""
     global stream
     if stream:
         stream.input_queue.push('end')
