@@ -386,7 +386,7 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
                 history_pixels = soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
             if not high_vram:
                 unload_complete_models()
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}.mp4')
+            output_filename = os.path.join(outputs_folder, f'framepack_{job_id}_{total_generated_latent_frames}.mp4')
             save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
             print(f'Decoded. Current latent shape {real_history_latents.shape}; pixel shape {history_pixels.shape}')
             stream_to_use.output_queue.push(('file', output_filename))
@@ -410,6 +410,7 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
                     except Exception as e:
                         print(f"Failed to delete {vf}: {e}")
                 video_path = os.path.join(outputs_folder, final_video)
+        stream_to_use.output_queue.push(('end', None))
         return video_path
     except Exception as e:
         traceback.print_exc()
@@ -536,12 +537,12 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
                 flag, data = stream.output_queue.next()
                 if flag == 'progress':
                     preview, desc, html = data
-                    yield None, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
+                    yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
                 elif flag == 'file':
                     video_path = data
                     yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
                 elif flag == 'end':
-                    yield data, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update()
+                    yield video_path, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update()
                     break
             except IndexError:
                 time.sleep(0.1)
