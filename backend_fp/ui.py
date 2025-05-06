@@ -85,7 +85,7 @@ def create_ui():
                             clean_up_videos = gr.Checkbox(label="Clean up video files", value=True)
                         with gr.Row():
                             start_button = gr.Button(value="Generate")
-                            end_button = gr.Button(value="Cancel", interactive=True)
+                            end_button = gr.Button(value="Cancel", interactive=False)
                         error_message = gr.Markdown("", visible=False)
                     with gr.Column():
                         preview_image = gr.Image(label="Next Latents", height=200, visible=True)
