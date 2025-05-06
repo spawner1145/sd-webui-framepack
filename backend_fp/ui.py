@@ -74,7 +74,6 @@ def create_ui():
                                 n_prompt = gr.Textbox(label="Negative Prompt", value="", visible=False)
                             with gr.Row():
                                 seed = gr.Number(label="Seed", value=-1, precision=0)
-                                randomize_seed = gr.Checkbox(label="Randomize", value=False)
                         with gr.Accordion("Advanced Parameters", open=False):
                             latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1)
                             cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01)
@@ -156,10 +155,8 @@ def create_ui():
         
         # 处理生成请求
         def process_directly(*args):
-            input_image, end_image, latent_type, prompt_text, _, n_prompt, blend_sections, steps, total_second_length, lora_selector, json_upload, save_metadata, use_teacache, seed_value, randomize_seed_checked, latent_window_size, cfg, gs, rs, gpu_memory_preservation, mp4_crf, clean_up_videos, resolution = args[:23]
-            lora_values = args[23:]
-            if randomize_seed_checked:
-                seed_value = random.randint(0, 2**32 - 1)
+            input_image, end_image, latent_type, prompt_text, _, n_prompt, blend_sections, steps, total_second_length, lora_selector, json_upload, save_metadata, use_teacache, seed_value, latent_window_size, cfg, gs, rs, gpu_memory_preservation, mp4_crf, clean_up_videos, resolution = args[:22]
+            lora_values = args[22:]
             try:
                 for outputs in process(
                     input_image=input_image,
@@ -182,8 +179,7 @@ def create_ui():
                     blend_sections=blend_sections,
                     clean_up_videos=clean_up_videos,
                     selected_loras=lora_selector,
-                    lora_values=lora_values,
-                    randomize_seed=randomize_seed_checked
+                    lora_values=lora_values
                 ):
                     video_path, preview, desc, html, start_button_state, end_button_state, seed_state, error_state = outputs
                     yield [video_path, preview, desc, html, start_button_state, end_button_state, seed_state, error_state]
@@ -195,7 +191,7 @@ def create_ui():
         # 输入参数
         ips = [
             input_image, end_image, latent_type, prompt, example_quick_prompts, n_prompt, blend_sections,
-            steps, total_second_length, lora_selector, json_upload, save_metadata, use_teacache, seed, randomize_seed,
+            steps, total_second_length, lora_selector, json_upload, save_metadata, use_teacache, seed,
             latent_window_size, cfg, gs, rs, gpu_memory_preservation, mp4_crf, clean_up_videos, resolution
         ] + [lora_sliders[lora] for lora in lora_names]
         
