@@ -194,7 +194,7 @@ def main():
     主函数，演示如何调用 Image-to-Video API 并保存生成的视频。
     """
     # API 配置
-    api_url = "http://127.0.0.1:7870/framepack/v1/i2v"  # 替换为你的 API 地址
+    api_url = "http://127.0.0.1:7871/framepack/v1/i2v"  # 替换为你的 API 地址
     username = None  # 如果需要认证，设置用户名
     password = None  # 如果需要认证，设置密码
     output_dir = "outputs"  # 输出目录
