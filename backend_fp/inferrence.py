@@ -108,8 +108,6 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
     prompt_sections = parse_timestamped_prompt(prompt_text, total_second_length, latent_window_size)
     job_id = generate_timestamp()
     stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Starting ...'))))
-    if seed == -1:
-        seed = random.randint(0, 2**32 - 1)
     try:
         if not high_vram:
             unload_complete_models(text_encoder, text_encoder_2, image_encoder, vae, transformer)
@@ -419,7 +417,7 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
         stream_to_use.output_queue.push(('end', None))
         return
 
-def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, save_metadata, blend_sections, clean_up_videos, selected_loras, lora_values, randomize_seed=False):
+def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, save_metadata, blend_sections, clean_up_videos, selected_loras, lora_values):
     """处理视频生成请求的主函数，流式返回8个值以匹配UI输出"""
     global stream, text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, feature_extractor, image_encoder, transformer, models_loaded
     if not models_loaded:
@@ -503,7 +501,9 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
     desc = ''
     html = ''
     error_message = ''
-    new_seed = seed if not randomize_seed else random.randint(0, 2**32 - 1)
+    new_seed = seed
+    if seed == -1:
+        new_seed = random.randint(0, 2**32 - 1)
     try:
         # 初始状态：禁用开始按钮，启用取消按钮
         yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
@@ -538,13 +538,13 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
                 flag, data = stream.output_queue.next()
                 if flag == 'progress':
                     preview, desc, html = data
-                    yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
+                    yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=seed), gr.update()
                 elif flag == 'file':
                     video_path = data
-                    yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
+                    yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=seed), gr.update()
                 elif flag == 'end':
                     print("Task ended")
-                    yield video_path, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update()
+                    yield video_path, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=seed), gr.update()
                     break
             except IndexError:
                 time.sleep(0.1)
@@ -554,9 +554,9 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
         html = make_progress_bar_html(0, desc)
         error_message = desc
         print(f"Error occurred: {desc}")
-        yield video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update(value=error_message, visible=True)
+        yield video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=seed), gr.update(value=error_message, visible=True)
     # 最终返回（仅在异常情况下使用，通常通过 yield 退出）
-    return video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update(value=error_message, visible=True)
+    return video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=seed), gr.update(value=error_message, visible=True)
 
 def end_process():
     """取消生成过程"""
