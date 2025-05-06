@@ -158,7 +158,7 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
             metadata = PngInfo()
             metadata.add_text("prompt", prompt_text)
             metadata.add_text("seed", str(seed))
-            Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}.png'), pnginfo=metadata)
+            Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'framepack_{job_id}.png'), pnginfo=metadata)
             metadata_dict = {
                 "prompt": prompt_text,
                 "seed": seed,
@@ -176,10 +176,10 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
             if selected_loras:
                 lora_data = {lora_name: float(lora_values[i]) if i < len(lora_values) else 1.0 for i, lora_name in enumerate(selected_loras)}
                 metadata_dict["loras"] = lora_data
-            with open(os.path.join(outputs_folder, f'{job_id}.json'), 'w') as f:
+            with open(os.path.join(outputs_folder, f'framepack_{job_id}.json'), 'w') as f:
                 json.dump(metadata_dict, f, indent=2)
         else:
-            Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}.png'))
+            Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'framepack_{job_id}.png'))
         input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
         input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
         has_end_image = end_image is not None
@@ -187,7 +187,7 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Processing end frame ...'))))
             H_end, W_end, C_end = end_image.shape
             end_image_np = resize_and_center_crop(end_image, target_width=width, target_height=height)
-            Image.fromarray(end_image_np).save(os.path.join(outputs_folder, f'{job_id}_end.png'))
+            Image.fromarray(end_image_np).save(os.path.join(outputs_folder, f'framepack_{job_id}_end.png'))
             end_image_pt = torch.from_numpy(end_image_np).float() / 127.5 - 1
             end_image_pt = end_image_pt.permute(2, 0, 1)[None, :, None]
         stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'VAE encoding ...'))))
@@ -395,11 +395,11 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
                 break
             section_idx += 1
         if clean_up_videos:
-            video_files = [f for f in os.listdir(outputs_folder) if f.startswith(f"{job_id}_") and f.endswith(".mp4")]
+            video_files = [f for f in os.listdir(outputs_folder) if f.startswith(f"framepack_{job_id}_") and f.endswith(".mp4")]
             if video_files:
                 def get_frame_count(filename):
                     try:
-                        return int(filename.replace(f"{job_id}_", "").replace(".mp4", ""))
+                        return int(filename.replace(f"framepack_{job_id}_", "").replace(".mp4", ""))
                     except Exception:
                         return -1
                 video_files_sorted = sorted(video_files, key=get_frame_count)
