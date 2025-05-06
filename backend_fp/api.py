@@ -1,5 +1,7 @@
 import base64
 import os
+import re
+import logging
 from typing import Callable
 from threading import Lock
 from secrets import compare_digest
@@ -10,6 +12,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 from PIL import Image
 import numpy as np
+from backend_fp.inferrence import worker, process, AsyncStream, async_run
+import asyncio
 
 try:
     from modules import shared
@@ -20,15 +24,17 @@ except ImportError:
     shared = type('Shared', (), {'cmd_opts': type('CmdOpts', (), {'api_auth': None})()})()
     webui_queue_lock = None
 
-from backend_fp.inferrence import worker
+# 设置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Image2VideoRequest(BaseModel):
     input_image: str | None = Field(None, description="首帧图片的 Base64 编码字符串（可选）")
     end_image: str | None = Field(None, description="尾帧图片的 Base64 编码字符串（可选）")
-    latent_type: str = Field("Black", description="无首帧时使用的潜在图像类型：Black, White, Noise, Green Screen")
-    prompt: str = Field("", description="提示词，支持时间戳格式如[0s-2s: 描述]")
+    latent_type: str = Field("Black", regex="^(Black|White|Noise|Green Screen)$", description="无首帧时使用的潜在图像类型")
+    prompt: str = Field(..., min_length=1, description="提示词，支持时间戳格式如[0s-2s: 描述]，支持LoRA语法如<lora:模型名:权重>")
     negative_prompt: str = Field("", description="负向提示词")
-    seed: int = Field(-1, description="随机种子")
+    seed: int = Field(-1, ge=-1, le=2**32-1, description="随机种子")
     total_second_length: float = Field(5.0, ge=1.0, le=120.0, description="视频总时长（秒）")
     latent_window_size: int = Field(9, ge=1, le=33, description="潜在窗口大小")
     steps: int = Field(25, ge=1, le=100, description="推理步数")
@@ -42,8 +48,6 @@ class Image2VideoRequest(BaseModel):
     save_metadata: bool = Field(False, description="是否保存元数据")
     blend_sections: int = Field(4, ge=0, le=10, description="提示词混合的段数")
     clean_up_videos: bool = Field(True, description="是否清理中间视频文件")
-    lora_names: list[str] = Field([], description="使用的LoRA模型名称")
-    lora_weights: list[float] = Field([], description="LoRA模型权重")
 
 class VideoResponse(BaseModel):
     video: str | None = Field(None, description="生成的视频，Base64 编码的 MP4 文件")
@@ -90,11 +94,13 @@ class Api:
 
     def decode_base64_image(self, base64_str: str) -> np.ndarray:
         try:
-            img_data = base64.b64decode(base64_str)
+            img_data = base64.b64decode(base64_str, validate=True)
             img = Image.open(BytesIO(img_data)).convert("RGB")
             return np.array(img)
+        except base64.binascii.Error:
+            raise HTTPException(400, "Invalid Base64 string format")
         except Exception as e:
-            raise HTTPException(400, f"Invalid image Base64 data: {str(e)}")
+            raise HTTPException(400, f"Failed to decode image: {str(e)}")
 
     def encode_video_to_base64(self, video_path: str) -> str:
         try:
@@ -104,38 +110,134 @@ class Api:
         except Exception as e:
             raise HTTPException(500, f"Failed to encode video to Base64: {str(e)}")
 
-    def endpoint_image2video(self, req: Image2VideoRequest):
-        input_image = self.decode_base64_image(req.input_image) if req.input_image else None
-        end_image = self.decode_base64_image(req.end_image) if req.end_image else None
+    def extract_lora_from_prompt(self, prompt: str) -> tuple[str, list[str], list[float]]:
+        """从prompt中提取<lora:模型名:权重>语法，返回清理后的prompt和LoRA信息"""
+        lora_pattern = r"<lora:([^:>]+):([^>]+)>"
+        lora_names = []
+        lora_weights = []
+        clean_prompt = prompt
+
+        matches = re.findall(lora_pattern, prompt)
+        for lora_name, weight in matches:
+            try:
+                weight = float(weight)
+                if weight < 0 or weight > 2:
+                    raise ValueError(f"LoRA weight {weight} must be between 0 and 2")
+                lora_names.append(lora_name)
+                lora_weights.append(weight)
+                clean_prompt = clean_prompt.replace(f"<lora:{lora_name}:{weight}>", "")
+            except ValueError as e:
+                raise HTTPException(400, f"Invalid LoRA weight for {lora_name}: {str(e)}")
+
+        # 验证 LoRA 文件是否存在
+        lora_dir = "models/hunyuan/lora"
+        for lora_name in lora_names:
+            lora_file = None
+            for ext in [".safetensors", ".pt"]:
+                if os.path.exists(os.path.join(lora_dir, lora_name + ext)):
+                    lora_file = lora_name + ext
+                    break
+            if not lora_file:
+                raise HTTPException(400, f"LoRA model {lora_name} not found in {lora_dir}")
+
+        return clean_prompt.strip(), lora_names, lora_weights
+
+    async def endpoint_image2video(self, req: Image2VideoRequest):
+        logger.info(f"Received request: prompt={req.prompt}, seed={req.seed}")
         try:
-            video_path = worker(
-                input_image=input_image,
-                end_image=end_image,
-                latent_type=req.latent_type,
-                prompt_text=req.prompt,
-                n_prompt=req.negative_prompt,
-                seed=req.seed,
-                total_second_length=req.total_second_length,
-                latent_window_size=req.latent_window_size,
-                steps=req.steps,
-                cfg=req.cfg,
-                gs=req.distilled_guidance_scale,
-                rs=req.guidance_rescale,
-                gpu_memory_preservation=req.gpu_memory_preservation,
-                use_teacache=req.use_teacache,
-                mp4_crf=req.mp4_crf,
-                resolution=req.resolution,
-                save_metadata=req.save_metadata,
-                blend_sections=req.blend_sections,
-                clean_up_videos=req.clean_up_videos,
-                selected_loras=req.lora_names,
-                lora_values=req.lora_weights
-            )
-            video_base64 = self.encode_video_to_base64(video_path) if video_path else None
-            return VideoResponse(video=video_base64, info="Video generated successfully")
+            with self.queue_lock:
+                input_image = self.decode_base64_image(req.input_image) if req.input_image else None
+                end_image = self.decode_base64_image(req.end_image) if req.end_image else None
+
+                # 提取 LoRA 信息
+                clean_prompt, lora_names, lora_weights = self.extract_lora_from_prompt(req.prompt)
+
+                # 创建 AsyncStream 用于处理 worker 的流式输出
+                stream = AsyncStream()
+                task = async_run(
+                    worker,
+                    input_image=input_image.copy() if input_image is not None else None,
+                    end_image=end_image,
+                    prompt_text=clean_prompt,
+                    n_prompt=req.negative_prompt,
+                    seed=req.seed,
+                    total_second_length=req.total_second_length,
+                    latent_window_size=req.latent_window_size,
+                    steps=req.steps,
+                    cfg=req.cfg,
+                    gs=req.distilled_guidance_scale,
+                    rs=req.guidance_rescale,
+                    gpu_memory_preservation=req.gpu_memory_preservation,
+                    use_teacache=req.use_teacache,
+                    mp4_crf=req.mp4_crf,
+                    resolution=req.resolution,
+                    save_metadata=req.save_metadata,
+                    blend_sections=req.blend_sections,
+                    latent_type=req.latent_type,
+                    clean_up_videos=req.clean_up_videos,
+                    selected_loras=lora_names,
+                    lora_values=lora_weights,
+                    job_stream=stream
+                )
+
+                video_path = None
+                while True:
+                    try:
+                        flag, data = stream.output_queue.next()
+                        if flag == 'file':
+                            video_path = data
+                        elif flag == 'end':
+                            break
+                    except IndexError:
+                        await asyncio.sleep(0.1)
+                        continue
+
+                await task  # 确保任务完成
+
+                if video_path is None:
+                    raise HTTPException(500, "Failed to generate video: No video path returned")
+
+                video_base64 = self.encode_video_to_base64(video_path)
+                logger.info(f"Video generated successfully: {video_path}")
+                return VideoResponse(video=video_base64, info="Video generated successfully")
+        except ValueError as ve:
+            logger.error(f"Invalid input: {str(ve)}")
+            raise HTTPException(400, f"Invalid input: {str(ve)}")
+        except RuntimeError as re:
+            logger.error(f"Runtime error, possibly GPU memory issue: {str(re)}")
+            raise HTTPException(500, f"Runtime error, possibly GPU memory issue: {str(re)}")
         except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
             raise HTTPException(500, f"Failed to generate video: {str(e)}")
 
 def on_app_started(_: None, app: FastAPI):
     queue_lock = webui_queue_lock if IN_WEBUI else Lock()
+    # 初始化模型（模拟 process 函数的模型加载逻辑）
+    async def init_models():
+        async for _ in process(
+            input_image=None,
+            end_image=None,
+            latent_type="Black",
+            prompt_text="",
+            n_prompt="",
+            seed=-1,
+            total_second_length=5.0,
+            latent_window_size=9,
+            steps=25,
+            cfg=1.0,
+            gs=10.0,
+            rs=0.0,
+            gpu_memory_preservation=6.0,
+            use_teacache=True,
+            mp4_crf=16,
+            resolution=640,
+            save_metadata=False,
+            blend_sections=4,
+            clean_up_videos=True,
+            selected_loras=[],
+            lora_values=[],
+            randomize_seed=False
+        ):
+            break  # 只需要触发模型加载，不需要处理输出
+    asyncio.run(init_models())
     Api(app, queue_lock, "/framepack/v1")
