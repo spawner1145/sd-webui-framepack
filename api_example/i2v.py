@@ -167,7 +167,7 @@ def call_image2video_api(
             api_url,
             json=request_data,
             auth=auth,
-            timeout=300  # 设置超时为 300 秒，适应较长的视频生成时间
+            timeout=None
         )
         response.raise_for_status()  # 抛出 HTTP 错误（如果有）
         logger.info("API request successful")
