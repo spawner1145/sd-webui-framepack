@@ -276,7 +276,7 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
             latent_padding_size = latent_padding * latent_window_size
             if stream_to_use.input_queue.top() == 'end':
                 stream_to_use.output_queue.push(('end', None))
-                return None
+                return
             current_time_position = (total_generated_latent_frames * 4 - 3) / 30
             if current_time_position < 0:
                 current_time_position = 0.01
@@ -412,12 +412,12 @@ def worker(input_image, end_image, prompt_text, n_prompt, seed, total_second_len
                 video_path = os.path.join(outputs_folder, final_video)
         stream_to_use.output_queue.push(('end', None))
         return video_path
-    except Exception as e:
+    except:
         traceback.print_exc()
         if not high_vram:
             unload_complete_models(text_encoder, text_encoder_2, image_encoder, vae, transformer)
         stream_to_use.output_queue.push(('end', None))
-        raise e
+        return
 
 def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, resolution, save_metadata, blend_sections, clean_up_videos, selected_loras, lora_values, randomize_seed=False):
     """处理视频生成请求的主函数，流式返回8个值以匹配UI输出"""
@@ -508,6 +508,7 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
         # 初始状态：禁用开始按钮，启用取消按钮
         yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
         stream = AsyncStream()
+        print(f"Starting new task with stream: {stream}")
         async_run(
             worker,
             input_image=input_image.copy() if input_image is not None else None,
@@ -542,6 +543,7 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
                     video_path = data
                     yield video_path, preview, desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update(value=new_seed), gr.update()
                 elif flag == 'end':
+                    print("Task ended")
                     yield video_path, None, '', '', gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update()
                     break
             except IndexError:
@@ -551,6 +553,7 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
         desc = f"Error: {str(e)}"
         html = make_progress_bar_html(0, desc)
         error_message = desc
+        print(f"Error occurred: {desc}")
         yield video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update(value=error_message, visible=True)
     # 最终返回（仅在异常情况下使用，通常通过 yield 退出）
     return video_path, preview, desc, html, gr.update(interactive=True), gr.update(interactive=False), gr.update(value=new_seed), gr.update(value=error_message, visible=True)
@@ -558,5 +561,5 @@ def process(input_image, end_image, latent_type, prompt_text, n_prompt, seed, to
 def end_process():
     """取消生成过程"""
     global stream
-    if stream:
-        stream.input_queue.push('end')
+    print("Cancelling task...")
+    stream.input_queue.push('end')
