@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class Image2VideoRequest(BaseModel):
     input_image: str | None = Field(None, description="首帧图片的 Base64 编码字符串（可选）")
     end_image: str | None = Field(None, description="尾帧图片的 Base64 编码字符串（可选）")
-    latent_type: str = Field("Black", regex="^(Black|White|Noise|Green Screen)$", description="无首帧时使用的潜在图像类型")
+    latent_type: str = Field("Black", pattern="^(Black|White|Noise|Green Screen)$", description="无首帧时使用的潜在图像类型")
     prompt: str = Field(..., min_length=1, description="提示词，支持时间戳格式如[0s-2s: 描述]，支持LoRA语法如<lora:模型名:权重>")
     negative_prompt: str = Field("", description="负向提示词")
     seed: int = Field(-1, ge=-1, le=2**32-1, description="随机种子")
