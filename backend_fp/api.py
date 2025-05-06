@@ -194,8 +194,7 @@ class Api:
                     "blend_sections": req.blend_sections,
                     "clean_up_videos": req.clean_up_videos,
                     "selected_loras": lora_names,
-                    "lora_values": lora_weights,
-                    "randomize_seed": req.seed == -1
+                    "lora_values": lora_weights
                 }
 
             # 在单独线程中运行 process
