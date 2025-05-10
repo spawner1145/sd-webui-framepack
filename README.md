@@ -1,6 +1,4 @@
-Okay, here is the complete bilingual version of the README again:
-
-# sd-webui-framepack (中英双语版 / Chinese & English Version)
+# sd-webui-framepack
 
 已支持30系以下显卡和首尾帧
 已支持api调用
